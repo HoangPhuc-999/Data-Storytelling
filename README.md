@@ -1,6 +1,4 @@
-# Data_Storytelling
-Group Project for Data Preparation and Visualization
-
+# Data Preparation and Visualization
 # **US Accidents - Exploratory Data Analysis & Prediction**
 
 ## **Introduction**
