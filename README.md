@@ -1,4 +1,4 @@
-# Data Preparation and Visualization
+# Data Preparation and Visualization_Group 7
 # **US Accidents - Exploratory Data Analysis & Prediction**
 
 ## **Introduction**
