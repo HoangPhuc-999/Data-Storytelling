@@ -3,3 +3,8 @@ pandas
 seaborn
 scikit-learn
 matplotlib
+joblib
+statsmodels
+xgboost
+lightgbm
+catboost
