@@ -40,6 +40,12 @@ class DataConfig:
     TRAIN_PROCESSED_PATH = PROCESSED_DIR / "train_processed.csv"
     TEST_PROCESSED_PATH = PROCESSED_DIR / "test_processed.csv"
     
+    # Featured data paths (after feature engineering)
+    X_TRAIN_FEATURED_PATH = PROCESSED_DIR / "X_train_featured.csv"
+    X_TEST_FEATURED_PATH = PROCESSED_DIR / "X_test_featured.csv"
+    Y_TRAIN_PATH = PROCESSED_DIR / "y_train.csv"
+    Y_TEST_PATH = PROCESSED_DIR / "y_test.csv"
+    
     # Output directories
     MODELS_DIR = PROJECT_ROOT / "models"
     FIGURES_DIR = PROJECT_ROOT / "figures"
