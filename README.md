@@ -352,47 +352,50 @@ Explain **HOW** and **WHY** specific Data Preparation techniques were chosen:
 - Predicting 1 as 3: Weight = 0.44 penalty
 - Predicting 1 as 4: Weight = 1.00 penalty (maximum)
 
-**Threshold Optimization**:
-- Standard thresholds: [1.5, 2.5, 3.5]
-- **Learned thresholds**: [1.42, 2.18, 3.65] (CatBoost)
-- **Improvement**: +0.035 QWK score
+**Threshold Optimization Approach**:
+- Standard approach: Fixed thresholds [1.5, 2.5, 3.5]
+- **Our implementation**: `OptimizedRounder` class uses Nelder-Mead optimization
+- **Goal**: Learn optimal thresholds to maximize QWK score
 
 ---
 
-#### 🏆 **Model Performance: CatBoost Wins**
+#### 🏆 **Model Training Infrastructure Implemented**
 
-| Model | Test Accuracy | Test QWK | F1-Weighted | Why It Works |
-|-------|---------------|----------|-------------|--------------|
-| Random Forest (Classifier) | 0.821 | 0.783 | 0.798 | Baseline: treats severity as discrete |
-| Random Forest (Regressor) | 0.838 | 0.812 | 0.821 | Better: ordinal nature preserved |
-| XGBoost | 0.845 | 0.828 | 0.834 | Gradient boosting + L2 regularization |
-| LightGBM | 0.843 | 0.825 | 0.831 | Fast but slightly underperforms |
-| **CatBoost** 🥇 | **0.856** | **0.847** | **0.848** | **Best: native categorical handling** |
+**Models Implemented** (Code ready for training):
 
-**Winner**: CatBoost Regressor + OptimizedRounder
-- **QWK**: 0.847 (industry-grade performance)
-- **Accuracy**: 85.6% (strong for imbalanced data)
-- **Why**: Handles categorical features without preprocessing, robust to overfitting
+| Model | Implementation Status | Key Features |
+|-------|---------------------|--------------|
+| Random Forest (Classifier) | ✅ Complete | Baseline: treats severity as discrete |
+| Random Forest (Regressor) | ✅ Complete | Ordinal nature preserved |
+| XGBoost | ✅ Complete | Gradient boosting + L2 regularization |
+| LightGBM | ✅ Complete | Fast training, efficient for large datasets |
+| **CatBoost** | ✅ Complete | Native categorical feature handling |
 
-**Visualization**: See `figures/model/model_comparison_qwk.png`, confusion matrices
+**Implementation Highlights**:
+- ✅ `OptimizedRounder` class for threshold optimization
+- ✅ Sample weights for class imbalance handling
+- ✅ Comprehensive evaluation metrics (QWK, accuracy, F1)
+- ✅ Model comparison framework
+
+**Training Status**: Model training infrastructure is complete. Full model training and comparison results are pending execution (run `notebooks/05_model.ipynb` to train all models).
 
 ---
 
-#### 🔍 **Feature Importance: What Drives Severity?**
+#### 🔍 **Feature Importance Analysis (Planned)**
 
-**Top 5 Predictors** (CatBoost model):
+**Expected Key Predictors** (Based on EDA insights):
 
-| Rank | Feature | Importance | Interpretation |
-|------|---------|------------|----------------|
-| 1 | **Temperature(F)** | 18.3% | Extreme cold/heat → Higher severity |
-| 2 | **Hour** | 15.7% | Rush hour → More severe (chain reactions) |
-| 3 | **Visibility(mi)** | 12.4% | Low visibility → Can't avoid obstacles |
-| 4 | **City (frequency)** | 11.2% | Urban density → Congestion patterns |
-| 5 | **Humidity(%)** | 9.8% | Proxy for rain/fog conditions |
+From our exploratory data analysis, we expect the following features to be most important:
 
-**Insight**: Environmental factors (temperature, visibility, humidity) dominate over infrastructure features - suggesting **weather-based interventions** are critical.
+| Feature Category | Example Features | EDA Evidence |
+|-----------------|------------------|---------------|
+| **Environmental** | Temperature, Visibility, Humidity | Strong correlation with severity in EDA |
+| **Temporal** | Hour, Day of week, Season | Rush hour shows 3x higher accident rates |
+| **Geographic** | City frequency, State | Urban density correlates with severity patterns |
+| **Weather** | Weather condition, Precipitation | Rain/snow conditions show +20% severity |
+| **Infrastructure** | Traffic signals, Junctions | EDA shows -15% severity near traffic signals |
 
-**Visualization**: `figures/model/feature_importance_catboost.png`
+**Status**: Feature importance analysis will be generated after model training execution.
 
 ---
 
@@ -424,13 +427,9 @@ Explain **HOW** and **WHY** specific Data Preparation techniques were chosen:
 - `temperature_vs_severity.png`, `visibility_vs_severity.png`, `humidity_vs_severity.png`
 - `sunrise_sunset_vs_severity.png` - Daylight vs. night patterns
 
-**Model Performance**
-- `confusion_matrix_[model].png` - Prediction error analysis
-- `feature_importance_[model].png` - Top 20 features per model
-- `model_comparison_qwk.png` - Bar chart comparison
-- `roc_curves_[model].png` - One-vs-rest ROC curves
+**Total**: 25 EDA plots completed (see `figures/eda/`)
 
-**Total**: 25 plots telling a complete data story
+**Note**: Model performance visualizations (confusion matrices, feature importance, ROC curves) will be generated after model training execution.
 
 ---
 
@@ -524,7 +523,7 @@ train_test_split(..., stratify=df['Severity'])
 
 **Problem**: Model biased toward Severity 2 (majority class).
 
-**Sample Weights**:
+**Sample Weights Implementation**:
 ```python
 from sklearn.utils.class_weight import compute_sample_weight
 weights = compute_sample_weight('balanced', y_train)
@@ -532,24 +531,25 @@ model.fit(X_train, y_train, sample_weight=weights)
 ```
 - Minority classes (Severity 1, 4) get higher weights
 - Forces model to pay attention to rare events
-- **Result**: +0.08 improvement in F1-Macro score
+- **Purpose**: Address the 75% Severity 2 class dominance
 
 ---
 
-### **6. Why CatBoost Over XGBoost/LightGBM?**
+### **6. Why Implement Multiple Models (RF, XGBoost, LightGBM, CatBoost)?**
 
-**Comparison**:
+**Model Comparison Framework**:
 | Feature | XGBoost | LightGBM | CatBoost |
 |---------|---------|----------|----------|
 | Categorical Handling | Manual encoding | Manual encoding | **Native support** ✅ |
 | Overfitting Risk | Moderate | Higher (leaf-wise) | Lower (ordered boosting) |
-| Training Speed | Moderate | Fast | Slower |
-| Final QWK | 0.828 | 0.825 | **0.847** ✅ |
+| Training Speed | Moderate | **Fast** ✅ | Slower |
+| Implementation | ✅ Complete | ✅ Complete | ✅ Complete |
 
-**Winner**: CatBoost
-- No need to encode categorical features manually
-- More robust to overfitting (critical for production)
-- Best performance on test set
+**Why Implement All?**
+- Different strengths: LightGBM (speed), CatBoost (categorical handling), XGBoost (robustness)
+- Allows empirical comparison after training
+- CatBoost expected to perform well due to native categorical support
+- Results will be compared based on QWK, accuracy, and F1 scores
 
 ---
 
@@ -711,19 +711,20 @@ STEP 2: FEATURE ENGINEERING
 STEP 3: MODEL TRAINING
 ======================================================================
 Training Random Forest Regressor...
-  ✓ Training complete (175s) | QWK: 0.8124
+  ✓ Training complete (est. ~175s)
 
 Training XGBoost Regressor...
-  ✓ Training complete (120s) | QWK: 0.8285
+  ✓ Training complete (est. ~120s)
 
 Training LightGBM Regressor...
-  ✓ Training complete (85s) | QWK: 0.8251
+  ✓ Training complete (est. ~85s)
 
 Training CatBoost Regressor...
-  ✓ Training complete (210s) | QWK: 0.8472
+  ✓ Training complete (est. ~210s)
 
-BEST MODEL: catboost (QWK: 0.8472)
-✓ Model saved to: models/catboost_best_model.pkl
+✓ All models trained successfully
+✓ Evaluation metrics computed (QWK, accuracy, F1)
+✓ Best model saved to: models/best_model.pkl
 ```
 
 ---
@@ -881,19 +882,21 @@ for model_name, metrics in results.items():
 **Or train single model via terminal:**
 
 ```bash
-# Train only CatBoost (fastest + best performance)
+# Train only CatBoost (recommended for categorical features)
 python -c "import pandas as pd; from src.model.training import train_catboost, evaluate_model_with_rounder; X_train = pd.read_csv('dataset/processed/X_train_featured.csv'); y_train = pd.read_csv('dataset/processed/y_train.csv').values.ravel(); X_test = pd.read_csv('dataset/processed/X_test_featured.csv'); y_test = pd.read_csv('dataset/processed/y_test.csv').values.ravel(); model = train_catboost(X_train, y_train); metrics = evaluate_model_with_rounder(model, X_train, y_train, X_test, y_test); print(f'CatBoost Test QWK: {metrics[\"test\"][\"qwk\"]:.4f}')"
 ```
 
-**Model comparison:**
+**Model Training Options:**
 
-| Model | Command | Training Time | QWK Score |
-|-------|---------|---------------|-----------|
-| Random Forest | `models=['random_forest']` | ~175s | 0.812 |
-| XGBoost | `models=['xgboost']` | ~120s | 0.828 |
-| LightGBM | `models=['lightgbm']` | ~85s | 0.825 |
-| CatBoost | `models=['catboost']` | ~210s | **0.847** |
-| All models | `models=['random_forest', 'xgboost', 'lightgbm', 'catboost']` | ~590s | - |
+| Model | Command | Est. Training Time | Key Feature |
+|-------|---------|-------------------|-------------|
+| Random Forest | `models=['random_forest']` | ~175s | Baseline approach |
+| XGBoost | `models=['xgboost']` | ~120s | Gradient boosting |
+| LightGBM | `models=['lightgbm']` | ~85s | Fast training |
+| CatBoost | `models=['catboost']` | ~210s | Native categorical handling |
+| All models | `models=['random_forest', 'xgboost', 'lightgbm', 'catboost']` | ~590s | Full comparison |
+
+**Note**: QWK scores and final model selection will be determined after training execution.
 
 ---
 
@@ -926,30 +929,24 @@ generate_all_plots()
 
 ---
 
-### Model Performance Plots
+### Model Performance Plots (Pending)
 
-**Script:** `src/visualization/generate_model_plots.py`
+**Status**: Model performance plots will be generated after model training execution.
 
-```bash
-# Generate model evaluation plots
-python src/visualization/generate_model_plots.py
-```
+**Planned Script:** `src/visualization/generate_model_plots.py`
 
-**Or in Python:**
-
-```python
-from src.visualization.generate_model_plots import generate_model_performance_plots
-
-generate_model_performance_plots()
-```
-
-**Generated plots** (saved to `figures/model/`):
+**Planned Visualizations** (will be saved to `figures/model/`):
 - `confusion_matrix_[model].png` - For each model
 - `feature_importance_[model].png` - Top 20 features
 - `model_comparison_qwk.png` - QWK scores comparison
 - `model_comparison_f1.png` - F1 scores comparison
 - `roc_curves_[model].png` - One-vs-rest ROC curves
 - `threshold_optimization.png` - OptimizedRounder visualization
+
+**To generate** (after model training):
+```bash
+python src/visualization/generate_model_plots.py
+```
 
 ---
 
@@ -1242,18 +1239,19 @@ Where:
 
 **Why QWK?** Penalizes predicting Severity 1 as 4 more than predicting as 2.
 
-#### Results Summary
+#### Implementation Status
 
-| Model | Test Accuracy | Test QWK | F1-Macro | F1-Weighted | Training Time |
-|-------|---------------|----------|----------|-------------|---------------|
-| Random Forest (Classifier) | 0.821 | 0.783 | 0.524 | 0.798 | 180s |
-| Random Forest (Regressor) | 0.838 | 0.812 | 0.562 | 0.821 | 175s |
-| XGBoost | 0.845 | 0.828 | 0.581 | 0.834 | 120s |
-| LightGBM | 0.843 | 0.825 | 0.576 | 0.831 | 85s |
-| **CatBoost** | **0.856** | **0.847** | **0.603** | **0.848** | 210s |
+**Models Implemented**:
+- ✅ Random Forest (Classifier and Regressor variants)
+- ✅ XGBoost Regressor
+- ✅ LightGBM Regressor
+- ✅ CatBoost Regressor
+- ✅ OptimizedRounder for threshold optimization
+- ✅ Evaluation pipeline (QWK, F1-macro, F1-weighted)
 
-**Best Model**: CatBoost Regressor with OptimizedRounder  
-**Key Insight**: Ordinal regression + threshold optimization consistently outperforms direct classification
+**Training Status**: Model training infrastructure is complete. Full model training and evaluation results are pending execution.
+
+**Key Design Decision**: Using ordinal regression + threshold optimization approach (rather than direct classification) to preserve the ordinal nature of severity levels (1 < 2 < 3 < 4).
 
 ---
 
@@ -1279,15 +1277,19 @@ Where:
    - Traffic signals: -15% severity (controlled intersections)
    - No nearby amenities: +20% severity (remote areas)
 
-### Feature Importance (CatBoost Model)
+### Expected Feature Importance (Based on EDA)
 
-| Feature | Importance | Interpretation |
-|---------|------------|----------------|
-| Temperature | 18.3% | Extreme temperatures correlate with severity |
-| Hour | 15.7% | Time-of-day is critical predictor |
-| Visibility | 12.4% | Low visibility increases severity |
-| City (frequency) | 11.2% | Urban density affects severity |
-| Humidity | 9.8% | Weather condition proxy |
+From exploratory data analysis, these features show strong correlation with severity:
+
+| Feature | EDA Finding | Expected Importance |
+|---------|-------------|---------------------|
+| Temperature | Strong correlation with severity patterns | High |
+| Hour | Rush hours show 3x higher accident rates | High |
+| Visibility | Low visibility correlates with +2.5x Severity 3/4 | High |
+| City (frequency) | Urban density shows clear severity patterns | Medium-High |
+| Humidity | Proxy for rain/fog, +20% severity in bad weather | Medium |
+
+**Note**: Quantitative feature importance will be available after model training.
 
 ---
 
@@ -1302,21 +1304,25 @@ All plots are automatically generated and saved to `figures/` directory.
 - Weather correlation matrices
 - Outlier detection box plots
 
-### Model Performance Plots
+**Generate EDA plots**:
+```python
+from src.visualization.generate_all_eda_plots import generate_all_plots
+
+generate_all_plots()  # Generates all 25 EDA visualizations
+```
+
+### Model Performance Plots (Pending)
+
+**Status**: Model performance visualizations will be generated after model training execution.
+
+**Planned Visualizations**:
 - Confusion matrices (all models)
 - ROC curves (one-vs-rest)
 - Feature importance bar charts
-- Learning curves (training vs. validation loss)
+- Model comparison plots
 - Threshold optimization visualization
 
-**Generate all plots**:
-```python
-from src.visualization.generate_all_eda_plots import generate_all_plots
-from src.visualization.generate_model_plots import generate_model_performance_plots
-
-generate_all_plots()  # EDA
-generate_model_performance_plots()  # Models
-```
+*Note: Model visualizations will be available after executing `notebooks/05_model.ipynb` and running `src.visualization.generate_model_plots`*
 
 ---
 
@@ -1369,6 +1375,57 @@ joblib>=1.1.0          # Model serialization
 
 ---
 
+## 🚧 Work In Progress
+
+### Completed ✅
+
+**Data Processing**:
+- ✅ Train-test stratified split (80/20)
+- ✅ Custom transformers: `VarianceThresholdSelector`, `ConstantAndDuplicateRemover`, `SunriseSunsetImputer`
+- ✅ Outlier detection and capping with domain knowledge
+- ✅ Missing value imputation (median for numeric, mode for categorical)
+- ✅ Data leakage prevention (dropped ID, Description, End_Time, Distance)
+
+**Feature Engineering**:
+- ✅ Temporal feature extraction (hour, day_of_week, month, year, season, is_weekend, is_night)
+- ✅ Frequency encoding for high-cardinality features (City, County)
+- ✅ One-hot encoding for low-cardinality features (State, Weather_Condition)
+- ✅ VIF-based feature selection (multicollinearity removal)
+
+**Exploratory Data Analysis**:
+- ✅ 25 professional visualizations generated (see `figures/eda/`)
+- ✅ Temporal patterns analysis (rush hour identification)
+- ✅ Geographic distribution analysis (state/city patterns)
+- ✅ Weather impact analysis (correlation with severity)
+- ✅ Infrastructure influence analysis
+- ✅ VIF analysis and correlation matrices
+
+**Model Training Infrastructure**:
+- ✅ `OptimizedRounder` class for threshold optimization
+- ✅ Training functions for Random Forest, XGBoost, LightGBM, CatBoost
+- ✅ Sample weight computation for class imbalance
+- ✅ Evaluation pipeline (QWK, accuracy, F1-macro, F1-weighted)
+- ✅ Model comparison framework
+
+### Pending Execution 🔄
+
+**Model Training & Evaluation**:
+- ⏳ Execute model training on featured dataset
+- ⏳ Generate confusion matrices for all models
+- ⏳ Generate feature importance visualizations
+- ⏳ Create model comparison plots (QWK, F1 scores)
+- ⏳ Generate ROC curves
+- ⏳ Perform threshold optimization
+- ⏳ Final model selection and serialization
+
+**Next Steps**:
+1. Run `notebooks/05_model.ipynb` to train all models
+2. Execute model evaluation pipeline
+3. Generate model performance visualizations
+4. Save best model for deployment
+
+---
+
 ## 🎓 Conclusion: Data Storytelling in Practice
 
 ### **The Story We Told**
@@ -1384,36 +1441,41 @@ Through this project, we built a **complete data story**:
 - Feature Engineering: Create temporal features from domain knowledge
 - EDA Insights: Rush hour patterns, weather impact, geographic hotspots
 
-**🔹 End (Solution & Results)**:
-- Predictive Model: 85.6% accuracy, 0.847 QWK
-- Actionable Insights: Weather-based alerts, infrastructure improvements
-- Production-Ready: Modular code, reproducible pipeline
+**🔹 End (Implementation & Insights)**:
+- Predictive Model Infrastructure: Complete training pipeline for 5 models
+- Actionable Insights: Rush hour patterns, weather impacts, geographic hotspots
+- Production-Ready: Modular code, reproducible pipeline, 25 EDA visualizations
 
 ---
 
 ### **Technical Analysis: Lessons Learned**
 
-#### ✅ **Key Decisions That Worked**
+#### ✅ **Key Design Decisions Implemented**
 
 1. **Ordinal Regression over Classification**
-   - Preserved severity ordering → +0.035 QWK improvement
-   - Threshold optimization crucial for ordinal problems
+   - Preserves severity ordering (1 < 2 < 3 < 4)
+   - Threshold optimization designed to maximize QWK
+   - Implementation: Regressor + `OptimizedRounder` class
 
 2. **Frequency Encoding for High-Cardinality**
    - City (9,562 unique) → Single column with meaningful pattern
    - Avoided curse of dimensionality from one-hot encoding
+   - Captures accident frequency per location
 
 3. **VIF-Based Feature Selection**
-   - Removed 30% redundant features
-   - Faster training, better interpretability
+   - Iteratively removes features with VIF > 10
+   - Reduces multicollinearity and redundancy
+   - Improves model interpretability
 
-4. **Sample Weights for Imbalance**
-   - Forced model to learn minority classes
-   - +0.08 F1-Macro improvement
+4. **Sample Weights for Class Imbalance**
+   - Computed using `sklearn.utils.class_weight.compute_sample_weight`
+   - Forces model to learn from minority classes (Severity 1, 4)
+   - Addresses the 75% Severity 2 dominance
 
-5. **CatBoost Model Selection**
-   - Native categorical handling
-   - Best QWK (0.847) among all models
+5. **Multiple Model Implementation**
+   - Random Forest, XGBoost, LightGBM, CatBoost implemented
+   - CatBoost designed for native categorical handling (no preprocessing needed)
+   - Comparison framework ready for evaluation
 
 #### ⚠️ **Challenges & Trade-offs**
 
