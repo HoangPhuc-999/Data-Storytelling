@@ -172,8 +172,6 @@ Explain **HOW** and **WHY** specific Data Preparation techniques were chosen:
    - Removed `End_Time`, `Distance(mi)` (consequences of severity)
    - **Result**: Model learns from causes, not effects
 
-**Visualization**: See `figures/eda/outlier_detection_boxplots.png`
-
 ---
 
 #### 🛠️ **Act 2: Feature Engineering - Creating Meaningful Signals**
@@ -193,15 +191,30 @@ Explain **HOW** and **WHY** specific Data Preparation techniques were chosen:
 
 **Why This Matters**: Accidents at 8 AM on Monday (rush hour) are fundamentally different from 2 AM Sunday (drunk driving risk).
 
-**Encoding Strategies** (Nuanced approach)
+**Encoding Strategies** (Implemented approach)
 | Feature Type | Encoding Method | Rationale |
 |--------------|----------------|-----------|
-| City (9,562 unique) | **Frequency Encoding** | Accident rate per city correlates with urban density |
-| County (1,567 unique) | **Frequency Encoding** | Regional patterns without explosion |
-| State (49 unique) | **One-Hot Encoding** | Small cardinality, preserve state identity |
-| Weather_Condition (130 unique) | **One-Hot Encoding** (top 20) + "Other" | Balance granularity and noise |
+| City (9,562 unique) | **Frequency Encoding** | Maps each city to its accident occurrence rate (0-1), captures urban density patterns |
+| County (1,567 unique) | **Frequency Encoding** | Regional accident patterns without dimensionality explosion |
+| State (49 unique) | **Frequency Encoding** | Consistent encoding strategy for all geographic features |
+| Sunrise_Sunset (2 unique) | **Label Encoding** | Ordinal mapping: Day/Night → numeric values |
+| Weather_Condition (~130 unique) | **Label Encoding** | Converts categorical weather types to numeric codes |
+| Boolean Features (7 infrastructure) | **Binary Conversion** | True → 1, False → 0, used for Road_Context_Score calculation |
 
-**Visualization**: See `figures/eda/temporal_patterns_processed.png`, `figures/eda/geographic_distribution_processed.png`
+**Implementation Details**:
+```python
+# Frequency Encoding (City, County, State)
+freq_map = train['City'].value_counts(normalize=True)
+train['City_encoded'] = train['City'].map(freq_map).fillna(0)
+
+# Label Encoding (Sunrise_Sunset, Weather_Condition)
+from sklearn.preprocessing import LabelEncoder
+le = LabelEncoder()
+train['Weather_Condition_encoded'] = le.fit_transform(train['Weather_Condition'])
+
+# Boolean to Binary (Amenity, Crossing, Junction, etc.)
+train['Amenity'] = train['Amenity'].map({True: 1, False: 0})
+```
 
 ---
 
@@ -209,18 +222,7 @@ Explain **HOW** and **WHY** specific Data Preparation techniques were chosen:
 
 **Problem**: More features ≠ Better model (curse of dimensionality + multicollinearity)
 
-**Variance Inflation Factor (VIF) Analysis**:
-- Detect multicollinearity (VIF > 10 = redundant features)
-- Iteratively remove highest VIF features
-- **Example**: `Wind_Chill(F)` removed (high correlation with `Temperature(F)`)
-
-**Result**:
-- Started with 120+ features
-- Final model uses 85 features
-- Removed 30% redundant features while preserving 98% of information
-
-**Visualization**: See `figures/eda/vif_analysis.png`, `figures/eda/correlation_matrix_numerical.png`
-
+**Using Random Forest model to choose the right efficent features**
 ---
 
 ### 💡 Chapter 4: The Insights - What the Data Reveals
@@ -381,9 +383,9 @@ Explain **HOW** and **WHY** specific Data Preparation techniques were chosen:
 
 ---
 
-#### 🔍 **Feature Importance Analysis (Planned)**
+#### 🔍 **Feature Importance Analysis**
 
-**Expected Key Predictors** (Based on EDA insights):
+**Expected Key Predictors**:
 
 From our exploratory data analysis, we expect the following features to be most important:
 
@@ -401,7 +403,7 @@ From our exploratory data analysis, we expect the following features to be most 
 
 ### 📊 Chapter 6: The Deliverables - Code + Storytelling
 
-#### 🎨 **25+ Professional Visualizations**
+#### 🎨 **Visualizations**
 
 **Raw Data Exploration** (Understanding the dataset)
 - `target_distribution_raw.png` - Class imbalance visualization
@@ -416,9 +418,6 @@ From our exploratory data analysis, we expect the following features to be most 
 
 **Feature Engineering Insights**
 - `temporal_patterns_processed.png` - Hour × Day-of-week heatmap
-- `correlation_matrix_numerical.png` - Pearson correlations
-- `correlation_matrix_categorical_cramers_v.png` - Cramér's V for categorical
-- `vif_analysis.png` - Multicollinearity detection
 
 **Domain Insights** (The storytelling core!)
 - `state_vs_severity.png` - Geographic severity patterns
@@ -427,35 +426,9 @@ From our exploratory data analysis, we expect the following features to be most 
 - `temperature_vs_severity.png`, `visibility_vs_severity.png`, `humidity_vs_severity.png`
 - `sunrise_sunset_vs_severity.png` - Daylight vs. night patterns
 
-**Total**: 25 EDA plots completed (see `figures/eda/`)
+**Total**: EDA plots completed (see `figures/eda/`)
 
 **Note**: Model performance visualizations (confusion matrices, feature importance, ROC curves) will be generated after model training execution.
-
----
-
-#### 💻 **Production-Ready Codebase**
-
-**Modular Architecture**:
-```
-src/
-├── config/config.py              # Single source of truth for all parameters
-├── data/data_processing.py       # Preprocessing pipeline (outliers, imputation)
-├── features/feature_engineering.py  # Temporal features, encoding, VIF
-├── model/training.py             # Model training, OptimizedRounder, evaluation
-├── evaluation/metrics.py         # QWK, F1, custom metrics
-├── visualization/
-│   ├── plots.py                  # Core plotting functions
-│   ├── generate_all_eda_plots.py # EDA automation
-│   └── generate_model_plots.py   # Model visualization automation
-└── pipeline.py                   # End-to-end orchestration (MLPipeline class)
-```
-
-**Key Features**:
-- ✅ **Configuration Management**: All hyperparameters in `DataConfig` class
-- ✅ **Reproducibility**: Fixed `RANDOM_STATE = 42` everywhere
-- ✅ **Logging**: Detailed console output for each pipeline stage
-- ✅ **Extensibility**: Easy to add new models, features, or visualizations
-- ✅ **Documentation**: Comprehensive docstrings (Google style)
 
 ---
 
@@ -475,30 +448,43 @@ src/
 
 ### **2. Why Frequency Encoding for High-Cardinality Features?**
 
-**Problem**: City has 9,562 unique values.
-- One-hot encoding → 9,562 new columns (curse of dimensionality)
-- Label encoding → Imposes false ordinal relationship
+**Problem**: Geographic features have extremely high cardinality:
+- City: 9,562 unique values
+- County: 1,567 unique values  
+- State: 49 unique values
 
-**Frequency Encoding** ✅:
+**Options Considered**:
+- One-hot encoding → 9,562+ new columns (curse of dimensionality, memory explosion)
+- Label encoding → Imposes false ordinal relationship (City 1 < City 2?)
+- Target encoding → Risk of overfitting, requires careful CV handling
+- **Frequency Encoding** ✅ → Maps to accident occurrence rate
+
+**Frequency Encoding Implementation**:
 ```python
+# Calculate normalized frequency (accident rate per city)
 city_freq = train['City'].value_counts(normalize=True)
-train['City_freq'] = train['City'].map(city_freq)
+
+# Map to training and test sets
+train['City_encoded'] = train['City'].map(city_freq).fillna(0)
+test['City_encoded'] = test['City'].map(city_freq).fillna(0)  # Unseen cities → 0
 ```
-- **Captures pattern**: High-accident cities get higher values
-- **Generalizes well**: Test cities not in train get 0 (rare city)
-- **Single column**: No dimensionality explosion
+
+**Advantages**:
+- ✅ **Captures meaningful pattern**: High-accident cities (e.g., Los Angeles) get higher values (~0.05)
+- ✅ **Single column**: Reduces 9,562 columns to 1 column
+- ✅ **Generalizes well**: Test cities not in train get 0 (interpreted as "rare city")
+- ✅ **Interpretable**: Value represents proportion of total accidents in that location
+- ✅ **Memory efficient**: float32 instead of 9,562 binary columns
+
+**Applied to**: City, County, State (all geographic features use consistent strategy)
 
 ---
 
-### **3. Why VIF Analysis for Feature Selection?**
+### **3. Why Ramdom Forest model for Feature Selection?**
 
 **Problem**: Multicollinearity inflates model variance and reduces interpretability.
 
-**Example**:
-- `Temperature(F)` and `Wind_Chill(F)` have VIF > 15 (nearly identical)
-- Both provide same information → Remove `Wind_Chill(F)`
-
-**Result**: Model trains faster, predictions more stable, feature importance more interpretable.
+**Result**: This reduces dimensionality, avoids overfitting, and speeds up training without losing useful information. We also optimized memory by downcasting numeric data types, reducing memory usage by about 50–70%.
 
 ---
 
@@ -621,29 +607,117 @@ Data_Storytelling/
 
 - Python 3.8 or higher
 - 8GB+ RAM (for full dataset processing)
-- 2GB+ disk space
+- 2GB+ disk space (5GB+ recommended for full dataset)
 
 ### Installation
 
-1. **Clone the repository**
+#### Step 1: Clone the Repository
+
 ```bash
 git clone https://github.com/HoangPhuc-999/Data_Storytelling.git
 cd Data_Storytelling
 ```
 
-2. **Create virtual environment**
+#### Step 2: Download Dataset from Google Drive
+
+**⚠️ Important**: Due to the large dataset size (~1.2GB), the GitHub repository contains only Git LFS pointers, not the actual CSV files. You need to download the full dataset from Google Drive.
+
+**Download Link**: [📦 US Accidents Dataset - Google Drive](https://drive.google.com/drive/folders/12C2mAsSBMKS8kqqT1xQHJq-qGxmfpD2Z)
+
+**Instructions**:
+
+1. **Access the Google Drive folder** using the link above
+2. **Download** the `US_Accidents_March23.csv` file (~1.2GB)
+3. **Place the file** in the project directory:
+   ```
+   Data_Storytelling/
+   └── dataset/
+       └── raw/
+           └── US_Accidents_March23.csv  ← Place downloaded file here
+   ```
+
+**Using Terminal** (after downloading):
+
+```bash
+# Windows (PowerShell)
+# Assuming you downloaded to Downloads folder
+Move-Item -Path "$env:USERPROFILE\Downloads\US_Accidents_March23.csv" -Destination "dataset\raw\US_Accidents_March23.csv"
+
+# Linux/Mac
+# Assuming you downloaded to Downloads folder
+mv ~/Downloads/US_Accidents_March23.csv dataset/raw/US_Accidents_March23.csv
+```
+
+**Verify the file**:
+```bash
+# Windows (PowerShell)
+Get-Item dataset\raw\US_Accidents_March23.csv | Select-Object Name, Length
+
+# Linux/Mac
+ls -lh dataset/raw/US_Accidents_March23.csv
+```
+
+Expected output: File size should be approximately **1.2GB**.
+
+#### Step 3: Create Virtual Environment
+
 ```bash
 python -m venv venv
+
 # Windows
 venv\Scripts\activate
+
 # Linux/Mac
 source venv/bin/activate
 ```
 
-3. **Install dependencies**
+#### Step 4: Install Dependencies
+
 ```bash
 pip install -r requirements.txt
 ```
+
+#### Step 5: Generate Train/Test Split
+
+After downloading the dataset, you need to generate the train/test split:
+
+**Option A: Using Jupyter Notebook** (Recommended)
+```bash
+jupyter notebook notebooks/00_train_test_split.ipynb
+# Run all cells to create train.csv and test.csv
+```
+
+**Option B: Using Python Script**
+```bash
+python -c "from src.config.config import DataConfig; import pandas as pd; from sklearn.model_selection import train_test_split; df = pd.read_csv(DataConfig.RAW_DATA_PATH); train, test = train_test_split(df, test_size=0.2, random_state=42, stratify=df['Severity']); train.to_csv('dataset/raw/train.csv', index=False); test.to_csv('dataset/raw/test.csv', index=False); print('✓ Train/test split complete!')"
+```
+
+This will create:
+- `dataset/raw/train.csv` (~415 MB) - 2,492,196 records
+- `dataset/raw/test.csv` (~104 MB) - 623,049 records
+
+#### Step 6: Verify Installation
+
+```python
+import pandas as pd
+
+# Check if files exist
+train = pd.read_csv('dataset/raw/train.csv')
+test = pd.read_csv('dataset/raw/test.csv')
+
+print(f"✓ Train set: {len(train):,} records")
+print(f"✓ Test set: {len(test):,} records")
+print(f"✓ Total: {len(train) + len(test):,} records")
+```
+
+Expected output:
+```
+✓ Train set: 2,492,196 records
+✓ Test set: 623,049 records
+✓ Total: 3,115,245 records
+```
+
+You're now ready to proceed with the [Usage Guide](#-usage-guide)!
 
 ### 📝 Usage Guide
 
@@ -1154,9 +1228,24 @@ DataConfig.SAMPLE_SIZE = 100000  # Use 100K samples
 
 #### Encoding Strategies
 
-- **High Cardinality** (City, County): Frequency encoding (% of accidents)
-- **Low Cardinality** (State, Weather_Condition): One-hot encoding
-- **Ordinal** (Timezone): Label encoding
+**Frequency Encoding** (for all geographic features):
+- **City (9,562 unique)**: Maps to normalized accident frequency (0-1 range)
+- **County (1,567 unique)**: Maps to regional accident occurrence rate
+- **State (49 unique)**: Consistent strategy with City/County
+
+**Label Encoding** (for categorical features):
+- **Sunrise_Sunset (2 unique)**: Day/Night → numeric codes
+- **Weather_Condition (~130 unique)**: Weather types → integer encoding
+- **Rationale**: Lower cardinality, no ordinality assumed, compatible with tree models
+
+**Binary Conversion** (for boolean infrastructure features):
+- **7 features**: Amenity, Crossing, Junction, Railway, Station, Stop, Traffic_Signal
+- **Conversion**: True → 1, False → 0
+- **Usage**: Summed into `Road_Context_Score` feature
+
+**Why Not One-Hot Encoding?**
+- Would create 9,562 columns for City alone (memory explosion)
+- Frequency encoding achieves same goal with 1 column per feature
 
 #### Multicollinearity Mitigation
 
