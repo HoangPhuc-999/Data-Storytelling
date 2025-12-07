@@ -562,7 +562,7 @@ Data_Storytelling/
 │   ├── data/
 │   │   └── data_processing.py        # Preprocessing pipeline
 │   ├── features/
-│   │   └── feature_engineering.py    # Temporal features, VIF selection
+│   │   └── feature_engineering.py    # Temporal features, Random Forest model selection
 │   ├── model/
 │   │   └── training.py               # Model training, OptimizedRounder, evaluation
 │   ├── evaluation/
