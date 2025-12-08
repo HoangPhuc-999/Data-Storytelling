@@ -12,6 +12,8 @@ import pickle
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
+import matplotlib
+matplotlib.use('Agg') 
 import seaborn as sns
 from sklearn.metrics import (
     confusion_matrix, classification_report, 
@@ -137,8 +139,8 @@ def plot_classification_reports(models, X_test, y_test):
 
 
 def plot_roc_curves(models, X_test, y_test):
-    """Plot 3: ROC curves (One-vs-Rest for multiclass)."""
-    print("\n[3/7] Generating ROC curves...")
+    """Plot 1: ROC curves (One-vs-Rest for multiclass)."""
+    print("\n[1/5] Generating ROC curves...")
     
     n_classes = 4
     classes = [1, 2, 3, 4]
@@ -173,7 +175,6 @@ def plot_roc_curves(models, X_test, y_test):
         ax.set_ylabel('True Positive Rate', fontsize=10)
         ax.set_title(f'ROC Curve - Severity {severity}', fontsize=11, pad=10)
         ax.legend(loc="lower right", fontsize=8)
-        ax.grid(alpha=0.3)
     
     plt.suptitle('ROC Curves - All Severity Classes (One-vs-Rest)', fontsize=14, y=0.995)
     plt.tight_layout()
@@ -183,8 +184,8 @@ def plot_roc_curves(models, X_test, y_test):
 
 
 def plot_precision_recall_curves(models, X_test, y_test):
-    """Plot 4: Precision-Recall curves."""
-    print("\n[4/7] Generating precision-recall curves...")
+    """Plot 2: Precision-Recall curves."""
+    print("\n[2/5] Generating precision-recall curves...")
     
     n_classes = 4
     classes = [1, 2, 3, 4]
@@ -217,7 +218,6 @@ def plot_precision_recall_curves(models, X_test, y_test):
         ax.set_ylabel('Precision', fontsize=10)
         ax.set_title(f'Precision-Recall Curve - Severity {severity}', fontsize=11, pad=10)
         ax.legend(loc="best", fontsize=8)
-        ax.grid(alpha=0.3)
     
     plt.suptitle('Precision-Recall Curves - All Severity Classes', fontsize=14, y=0.995)
     plt.tight_layout()
@@ -227,8 +227,8 @@ def plot_precision_recall_curves(models, X_test, y_test):
 
 
 def plot_feature_importance(models, X_test):
-    """Plot 5: Feature importance comparison."""
-    print("\n[5/7] Generating feature importance plots...")
+    """Plot 3: Feature importance comparison."""
+    print("\n[3/5] Generating feature importance plots...")
     
     feature_names = X_test.columns.tolist()
     models_with_importance = {}
@@ -272,24 +272,28 @@ def plot_feature_importance(models, X_test):
 
 
 def plot_performance_comparison(models, X_test, y_test):
-    """Plot 6: Overall performance metrics comparison."""
-    print("\n[6/7] Generating performance comparison...")
+    """Plot 4: Overall performance metrics comparison."""
+    print("\n[4/5] Generating performance comparison...")
     
     metrics_data = []
     
     for name, model in models.items():
         y_pred = model.predict(X_test)
         
+        # Round predictions to nearest integer for regressors
+        y_pred_rounded = np.round(y_pred).astype(int)
+        y_pred_rounded = np.clip(y_pred_rounded, 1, 4)
+        
         # Calculate metrics
         from sklearn.metrics import accuracy_score, precision_score, recall_score
         
         metrics_data.append({
             'Model': name,
-            'Accuracy': accuracy_score(y_test, y_pred),
-            'Precision': precision_score(y_test, y_pred, average='weighted', zero_division=0),
-            'Recall': recall_score(y_test, y_pred, average='weighted', zero_division=0),
-            'F1-Score': f1_score(y_test, y_pred, average='weighted', zero_division=0),
-            'Kappa': cohen_kappa_score(y_test, y_pred)
+            'Accuracy': accuracy_score(y_test, y_pred_rounded),
+            'Precision': precision_score(y_test, y_pred_rounded, average='weighted', zero_division=0),
+            'Recall': recall_score(y_test, y_pred_rounded, average='weighted', zero_division=0),
+            'F1-Score': f1_score(y_test, y_pred_rounded, average='weighted', zero_division=0),
+            'Kappa': cohen_kappa_score(y_test, y_pred_rounded)
         })
     
     df_performance = pd.DataFrame(metrics_data)
@@ -314,13 +318,17 @@ def plot_performance_comparison(models, X_test, y_test):
                    f'{height:.3f}', ha='center', va='bottom', fontsize=8)
     
     ax.set_xlabel('Model', fontsize=11)
-    ax.set_ylabel('Score', fontsize=11)
     ax.set_title('Model Performance Comparison - Weighted Metrics', fontsize=13, pad=15)
     ax.set_xticks(x)
     ax.set_xticklabels(df_performance['Model'], rotation=0, ha='center')
-    ax.legend(loc='lower right', fontsize=9)
+    ax.legend(loc='upper center', bbox_to_anchor=(0.5, 1.15), ncol=5, fontsize=9, frameon=False)
     ax.set_ylim([0, 1.1])
-    ax.grid(axis='y', alpha=0.3)
+    
+    # Remove y-axis, top spine, and grid
+    ax.set_yticks([])
+    ax.spines['top'].set_visible(False)
+    ax.spines['right'].set_visible(False)
+    ax.spines['left'].set_visible(False)
     
     plt.tight_layout()
     plt.savefig(MODEL_DIR / 'performance_comparison.png', dpi=300, bbox_inches='tight')
@@ -329,19 +337,22 @@ def plot_performance_comparison(models, X_test, y_test):
 
 
 def plot_class_distribution_predictions(models, X_test, y_test):
-    """Plot 7: Predicted vs Actual class distribution."""
-    print("\n[7/7] Generating prediction distribution plots...")
+    """Plot 5: Predicted vs Actual class distribution."""
+    print("\n[5/5] Generating prediction distribution plots...")
     
     n_models = len(models)
     fig, axes = plt.subplots(1, n_models + 1, figsize=(5*(n_models+1), 5))
     
     # Plot actual distribution
     actual_counts = pd.Series(y_test).value_counts().sort_index()
-    axes[0].bar(actual_counts.index, actual_counts.values, color='#2ca02c', alpha=0.7)
+    axes[0].bar(actual_counts.index, actual_counts.values, color='#2ca02c', alpha=0.7, edgecolor='none')
     axes[0].set_title('Actual Distribution', fontsize=12, pad=10)
     axes[0].set_xlabel('Severity', fontsize=10)
-    axes[0].set_ylabel('Count', fontsize=10)
     axes[0].set_xticks([1, 2, 3, 4])
+    axes[0].set_yticks([])  # Remove y-axis ticks
+    axes[0].spines['left'].set_visible(False)  # Hide left spine
+    axes[0].spines['top'].set_visible(False)   # Hide top spine
+    axes[0].spines['right'].set_visible(False) # Hide right spine
     
     for bar in axes[0].patches:
         height = bar.get_height()
@@ -351,14 +362,22 @@ def plot_class_distribution_predictions(models, X_test, y_test):
     # Plot predictions for each model
     for idx, (name, model) in enumerate(models.items(), start=1):
         y_pred = model.predict(X_test)
-        pred_counts = pd.Series(y_pred).value_counts().sort_index()
         
-        axes[idx].bar(pred_counts.index, pred_counts.values, color='#ff7f0e', alpha=0.7)
+        # Round predictions to nearest integer for regressors
+        y_pred_rounded = np.round(y_pred).astype(int)
+        y_pred_rounded = np.clip(y_pred_rounded, 1, 4)
+        
+        pred_counts = pd.Series(y_pred_rounded).value_counts().sort_index()
+        
+        axes[idx].bar(pred_counts.index, pred_counts.values, color='#ff7f0e', alpha=0.7, edgecolor='none')
         axes[idx].set_title(f'{name}\nPredictions', fontsize=12, pad=10)
         axes[idx].set_xlabel('Severity', fontsize=10)
-        axes[idx].set_ylabel('Count', fontsize=10)
         axes[idx].set_xticks([1, 2, 3, 4])
         axes[idx].set_ylim(axes[0].get_ylim())
+        axes[idx].set_yticks([])  # Remove y-axis ticks
+        axes[idx].spines['left'].set_visible(False)
+        axes[idx].spines['top'].set_visible(False)
+        axes[idx].spines['right'].set_visible(False)
         
         for bar in axes[idx].patches:
             height = bar.get_height()
@@ -386,9 +405,9 @@ def generate_all_model_plots():
         print("Please run: python src\\model\\training.py")
         return
     
-    # Generate all plots
-    plot_confusion_matrices(models, X_test, y_test)
-    plot_classification_reports(models, X_test, y_test)
+    # Generate all plots (skip confusion matrices and classification reports for regressors)
+    # plot_confusion_matrices(models, X_test, y_test)  # DISABLED - not suitable for regressors
+    # plot_classification_reports(models, X_test, y_test)  # DISABLED - not suitable for regressors
     plot_roc_curves(models, X_test, y_test)
     plot_precision_recall_curves(models, X_test, y_test)
     plot_feature_importance(models, X_test)

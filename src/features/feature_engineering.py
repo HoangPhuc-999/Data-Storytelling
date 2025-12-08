@@ -72,145 +72,164 @@ def reduce_mem_usage(df: pd.DataFrame, verbose: bool = True) -> pd.DataFrame:
 # TIME FEATURES
 # ============================================================================
 
-def extract_time_features(df: pd.DataFrame, time_col: str = 'Start_Time') -> pd.DataFrame:
+def extract_time_features(df: pd.DataFrame) -> pd.DataFrame:
     """
-    Extract time-based features from datetime column.
+    Extract time-based features from Start_Time including cyclical features.
+    Matches notebook implementation exactly.
     
     Args:
-        df: Input DataFrame
-        time_col: Name of datetime column
+        df: Input DataFrame with Start_Time column
         
     Returns:
-        DataFrame with extracted time features
+        DataFrame with time features (Start_Time dropped)
     """
     df = df.copy()
     
-    if time_col not in df.columns:
+    if 'Start_Time' not in df.columns:
         return df
     
-    df[time_col] = pd.to_datetime(df[time_col], errors='coerce')
+    # Convert to datetime
+    if df['Start_Time'].dtype == 'object':
+        df['Start_Time'] = pd.to_datetime(df['Start_Time'], errors='coerce')
     
-    df['Year'] = df[time_col].dt.year.astype('int16')
-    df['Month'] = df[time_col].dt.month.astype('int8')
-    df['Day'] = df[time_col].dt.day.astype('int8')
-    df['Hour'] = df[time_col].dt.hour.astype('int8')
-    df['DayOfWeek'] = df[time_col].dt.dayofweek.astype('int8')
-    df['Quarter'] = df[time_col].dt.quarter.astype('int8')
-    df['IsWeekend'] = (df['DayOfWeek'] >= 5).astype('int8')
+    dt = df['Start_Time'].dt
     
-    return df
+    # 1. Basic attributes
+    df['Hour'] = dt.hour.astype('int8')
+    df['Month'] = dt.month.astype('int8')
+    df['DayOfWeek'] = dt.dayofweek.astype('int8')
+    
+    # 2. Is_Weekend (Sat=5, Sun=6)
+    df['Is_Weekend'] = df['DayOfWeek'].isin([5, 6]).astype('int8')
+    
+    # 3. Rush Hour (7-9 AM and 5-7 PM)
+    df['Is_Rush_Hour'] = 0
+    mask_rush = ((df['Hour'] >= 7) & (df['Hour'] <= 9)) | ((df['Hour'] >= 17) & (df['Hour'] <= 19))
+    df.loc[mask_rush, 'Is_Rush_Hour'] = 1
+    df['Is_Rush_Hour'] = df['Is_Rush_Hour'].astype('int8')
 
+    # 4. Season
+    df['Season'] = ((df['Month'] % 12 + 3) // 3).astype('int8')
 
-def create_cyclical_features(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Create cyclical (sin/cos) features for temporal variables.
-    
-    Args:
-        df: Input DataFrame
-        
-    Returns:
-        DataFrame with cyclical features
-    """
-    df = df.copy()
-    
-    if 'Month' in df.columns:
-        df['Month_Sin'] = np.sin(2 * np.pi * df['Month'] / 12).astype('float32')
-        df['Month_Cos'] = np.cos(2 * np.pi * df['Month'] / 12).astype('float32')
-    
-    if 'Hour' in df.columns:
-        df['Hour_Sin'] = np.sin(2 * np.pi * df['Hour'] / 24).astype('float32')
-        df['Hour_Cos'] = np.cos(2 * np.pi * df['Hour'] / 24).astype('float32')
-    
-    if 'DayOfWeek' in df.columns:
-        df['DayOfWeek_Sin'] = np.sin(2 * np.pi * df['DayOfWeek'] / 7).astype('float32')
-        df['DayOfWeek_Cos'] = np.cos(2 * np.pi * df['DayOfWeek'] / 7).astype('float32')
-    
-    return df
+    # 5. CYCLICAL FEATURES
+    df['Hour_Sin'] = np.sin(2 * np.pi * df['Hour'] / 24).astype('float32')
+    df['Hour_Cos'] = np.cos(2 * np.pi * df['Hour'] / 24).astype('float32')
+    df['Month_Sin'] = np.sin(2 * np.pi * df['Month'] / 12).astype('float32')
+    df['Month_Cos'] = np.cos(2 * np.pi * df['Month'] / 12).astype('float32')
+
+    # Drop the original Start_Time column
+    return df.drop(columns=['Start_Time'])
 
 
 # ============================================================================
 # WEATHER FEATURES
 # ============================================================================
 
-def create_weather_features(df: pd.DataFrame) -> pd.DataFrame:
+def create_weather_flags(df: pd.DataFrame) -> pd.DataFrame:
     """
-    Create weather interaction and derived features.
+    Create weather flag features from Weather_Condition.
+    Matches notebook implementation exactly.
     
     Args:
-        df: Input DataFrame
+        df: Input DataFrame with Weather_Condition column
         
     Returns:
-        DataFrame with weather features
+        DataFrame with weather flags (Weather_Condition dropped)
     """
     df = df.copy()
     
-    if 'Temperature(F)' in df.columns and 'Humidity(%)' in df.columns:
-        df['Temp_Humidity_Interaction'] = (df['Temperature(F)'] * df['Humidity(%)']).astype('float32')
-    
-    if 'Visibility(mi)' in df.columns and 'Humidity(%)' in df.columns:
-        df['Visibility_Humidity_Ratio'] = (df['Visibility(mi)'] / (df['Humidity(%)'] + 1)).astype('float32')
-    
-    if 'Temperature(F)' in df.columns:
-        df['Temp_Squared'] = (df['Temperature(F)'] ** 2).astype('float32')
-    
-    return df
-
-
-def simplify_weather_condition(df: pd.DataFrame, col: str = 'Weather_Condition') -> pd.DataFrame:
-    """
-    Group weather conditions into broader categories.
-    
-    Args:
-        df: Input DataFrame
-        col: Weather condition column name
-        
-    Returns:
-        DataFrame with simplified weather categories
-    """
-    df = df.copy()
-    
-    if col not in df.columns:
+    if 'Weather_Condition' not in df.columns:
         return df
     
-    weather_mapping = {
-        'Clear': 'Clear',
-        'Cloudy': 'Cloudy',
-        'Rain': 'Rain',
-        'Snow': 'Snow',
-        'Fog': 'Fog'
-    }
+    w_cond = df['Weather_Condition'].fillna('').astype(str).str.lower()
     
-    df[col + '_Grouped'] = df[col].map(weather_mapping).fillna('Other')
-    
-    return df
+    # 1. Weather Types
+    df['Is_Rain'] = w_cond.str.contains('rain|storm|shower', regex=True).astype('int8')
+    df['Is_Snow'] = w_cond.str.contains('snow|blizzard|sleet', regex=True).astype('int8')
+    df['Is_Fog'] = w_cond.str.contains('fog|mist|haze', regex=True).astype('int8')
+    df['Is_Clear'] = w_cond.str.contains('clear', regex=True).astype('int8')
+    df['Is_Cloudy'] = w_cond.str.contains('cloud', regex=True).astype('int8')
+
+    # 2. Threshold checks
+    if 'Visibility(mi)' in df.columns:
+        df['Low_Visibility'] = (df['Visibility(mi)'] < 3).astype('int8')
+    if 'Temperature(F)' in df.columns:
+        df['Low_Temp'] = (df['Temperature(F)'] < 40).astype('int8')
+    if 'Humidity(%)' in df.columns:
+        df['High_Humidity'] = (df['Humidity(%)'] > 90).astype('int8')
+
+    # 3. Compound Flag: Bad_Weather
+    df['Bad_Weather'] = (
+        df['Is_Rain'] | df['Is_Snow'] | df['Is_Fog'] | 
+        df['Low_Visibility'] | df['High_Humidity']
+    ).astype('int8')
+
+    return df.drop(columns=['Weather_Condition'])
 
 
 # ============================================================================
 # INFRASTRUCTURE FEATURES
 # ============================================================================
 
-def create_infrastructure_score(df: pd.DataFrame) -> pd.DataFrame:
+def create_road_context(df: pd.DataFrame) -> pd.DataFrame:
     """
     Create road infrastructure complexity score.
+    Matches notebook implementation exactly.
     
     Args:
         df: Input DataFrame
         
     Returns:
-        DataFrame with infrastructure score
+        DataFrame with Road_Context_Score
     """
     df = df.copy()
     
-    infra_cols = ['Amenity', 'Crossing', 'Junction', 'Railway', 
-                  'Station', 'Stop', 'Traffic_Signal']
+    poi_cols = ['Amenity', 'Crossing', 'Junction', 'Railway', 
+                'Station', 'Stop', 'Traffic_Signal']
     
-    available_cols = [col for col in infra_cols if col in df.columns]
+    # Convert all POI columns to int8 (0/1)
+    for col in poi_cols:
+        if col in df.columns:
+            # Handle cases where data is 'True'/'False' string or boolean
+            if df[col].dtype == 'object':
+                df[col] = df[col].astype(str).map({'True': 1, 'False': 0, 'true': 1, 'false': 0}).fillna(0)
+            df[col] = df[col].astype(bool).astype('int8')
     
+    # Calculate the total number of POIs
+    available_cols = [col for col in poi_cols if col in df.columns]
     if available_cols:
-        for col in available_cols:
-            df[col] = df[col].map({'True': 1, 'False': 0, True: 1, False: 0}).fillna(0)
-        
         df['Road_Context_Score'] = df[available_cols].sum(axis=1).astype('int8')
+    
+    return df
+
+
+# ============================================================================
+# INTERACTION FEATURES
+# ============================================================================
+
+def create_interaction_features(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Create interaction features.
+    Matches notebook implementation exactly.
+    
+    Args:
+        df: Input DataFrame
+        
+    Returns:
+        DataFrame with interaction features (Sunrise_Sunset dropped)
+    """
+    df = df.copy()
+    
+    # 1. Day/Night
+    if 'Sunrise_Sunset' in df.columns:
+        df['Is_Night'] = (df['Sunrise_Sunset'] == 'Night').astype('int8')
+        df.drop(columns=['Sunrise_Sunset'], inplace=True)
+    
+    # 2. Interaction: Night + Rain + Junction
+    if all(col in df.columns for col in ['Is_Night', 'Is_Rain', 'Junction']):
+        df['Night_Rain_Junction'] = (
+            df['Is_Night'] & df['Is_Rain'] & df['Junction']
+        ).astype('int8')
     
     return df
 
@@ -219,52 +238,82 @@ def create_infrastructure_score(df: pd.DataFrame) -> pd.DataFrame:
 # ENCODING
 # ============================================================================
 
-def encode_categorical_features(
-    X_train: pd.DataFrame, 
+def encode_boolean_features(
+    X_train: pd.DataFrame,
     X_test: pd.DataFrame,
-    high_cardinality_cols: list = None,
-    label_encode_cols: list = None
-) -> Tuple[pd.DataFrame, pd.DataFrame, Dict[str, LabelEncoder]]:
+    bool_features: list
+) -> Tuple[pd.DataFrame, pd.DataFrame]:
     """
-    Encode categorical features using appropriate strategies.
+    Encode boolean features using Label Encoding.
     
     Args:
         X_train: Training features
         X_test: Test features
-        high_cardinality_cols: Columns for frequency encoding
-        label_encode_cols: Columns for label encoding
+        bool_features: List of boolean feature names
         
     Returns:
-        Tuple of (X_train_encoded, X_test_encoded, encoders_dict)
+        Tuple of (X_train_encoded, X_test_encoded)
     """
     X_train = X_train.copy()
     X_test = X_test.copy()
     
-    encoders = {}
+    le = LabelEncoder()
     
-    high_cardinality_cols = high_cardinality_cols or ['City', 'County', 'State']
-    label_encode_cols = label_encode_cols or ['Sunrise_Sunset', 'Weather_Condition']
-    
-    # Frequency encoding for high cardinality
-    for col in high_cardinality_cols:
+    for col in bool_features:
         if col in X_train.columns:
-            freq_map = X_train[col].value_counts(normalize=True).to_dict()
-            X_train[col + '_encoded'] = X_train[col].map(freq_map).fillna(0).astype('float32')
-            X_test[col + '_encoded'] = X_test[col].map(freq_map).fillna(0).astype('float32')
-            X_train.drop(col, axis=1, inplace=True)
-            X_test.drop(col, axis=1, inplace=True)
+            X_train[col] = le.fit_transform(X_train[col])
+            X_test[col] = le.transform(X_test[col])
     
-    # Label encoding for ordinal/low cardinality
-    for col in label_encode_cols:
-        if col in X_train.columns:
-            le = LabelEncoder()
-            X_train[col + '_encoded'] = le.fit_transform(X_train[col].astype(str))
-            X_test[col + '_encoded'] = le.transform(X_test[col].astype(str))
-            encoders[col] = le
-            X_train.drop(col, axis=1, inplace=True)
-            X_test.drop(col, axis=1, inplace=True)
+    return X_train, X_test
+
+
+def encode_target_with_smoothing(
+    X_train: pd.DataFrame,
+    X_test: pd.DataFrame,
+    y_train: pd.Series,
+    cols: list,
+    m: int = 20
+) -> Tuple[pd.DataFrame, pd.DataFrame]:
+    """
+    Perform smoothed target encoding for high cardinality features.
+    Matches notebook implementation exactly.
     
-    return X_train, X_test, encoders
+    Args:
+        X_train: Training features
+        X_test: Test features
+        y_train: Training target
+        cols: Columns to encode
+        m: Smoothing parameter
+        
+    Returns:
+        Tuple of (X_train_encoded, X_test_encoded)
+    """
+    global_mean = y_train.mean()
+    
+    # Copy to avoid SettingWithCopyWarning
+    X_train_enc = X_train.copy()
+    X_test_enc = X_test.copy()
+    
+    for col in cols:
+        if col not in X_train.columns:
+            continue
+            
+        # Calculate statistics on the TRAIN set
+        agg = pd.DataFrame({'feature': X_train[col], 'target': y_train})
+        stats = agg.groupby('feature')['target'].agg(['count', 'mean'])
+        
+        # Smoothing formula
+        smooth = (stats['count'] * stats['mean'] + m * global_mean) / (stats['count'] + m)
+        
+        # Map smoothed values to Train and Test
+        X_train_enc[col + '_encoded'] = X_train_enc[col].map(smooth).fillna(global_mean).astype('float32')
+        X_test_enc[col + '_encoded'] = X_test_enc[col].map(smooth).fillna(global_mean).astype('float32')
+        
+        # Drop original string/object column to save memory
+        X_train_enc.drop(columns=[col], inplace=True)
+        X_test_enc.drop(columns=[col], inplace=True)
+    
+    return X_train_enc, X_test_enc
 
 
 # ============================================================================
@@ -274,35 +323,107 @@ def encode_categorical_features(
 def select_features_rf(
     X_train: pd.DataFrame,
     y_train: pd.Series,
+    X_test: pd.DataFrame,
     threshold: str = 'median',
-    n_estimators: int = 100
-) -> Tuple[list, RandomForestClassifier]:
+    n_estimators: int = 100,
+    max_depth: int = 20
+) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     """
-    Select important features using Random Forest.
+    Perform feature selection using Random Forest feature importance.
+    Matches notebook implementation exactly.
     
     Args:
         X_train: Training features
         y_train: Training target
+        X_test: Test features
         threshold: Importance threshold ('median', 'mean', or float)
         n_estimators: Number of trees
+        max_depth: Maximum tree depth
         
     Returns:
-        Tuple of (selected_features, trained_model)
+        Tuple of (X_train_selected, X_test_selected, feature_importance_df)
     """
-    rf = RandomForestClassifier(
+    print("\n" + "="*80)
+    print("🔍 PERFORMING FEATURE SELECTION...")
+    print("="*80)
+    
+    # 1. Initialize model to evaluate feature importance
+    selector_model = RandomForestClassifier(
         n_estimators=n_estimators,
-        max_depth=10,
+        max_depth=max_depth,
         random_state=42,
         n_jobs=-1,
         class_weight='balanced'
     )
     
-    rf.fit(X_train, y_train)
+    print("🌲 Training Random Forest to evaluate feature importance...")
+    selector_model.fit(X_train, y_train)
+    print("✅ Training completed!")
     
-    selector = SelectFromModel(rf, threshold=threshold, prefit=True)
-    selected_features = X_train.columns[selector.get_support()].tolist()
+    # 2. Get feature importance
+    importances = selector_model.feature_importances_
+    feature_names = X_train.columns
     
-    return selected_features, rf
+    # Create DataFrame for easier visualization
+    feature_imp_df = pd.DataFrame({
+        'Feature': feature_names,
+        'Importance': importances
+    }).sort_values(by='Importance', ascending=False)
+    
+    # Print summary statistics
+    print(f"\n📈 Feature Importance Statistics:")
+    print(f"   • Median importance: {feature_imp_df['Importance'].median():.6f}")
+    print(f"   • Mean importance: {feature_imp_df['Importance'].mean():.6f}")
+    print(f"   • Max importance: {feature_imp_df['Importance'].max():.6f}")
+    print(f"   • Min importance: {feature_imp_df['Importance'].min():.6f}")
+    
+    # 3. Feature selection using threshold
+    print(f"\n🔍 Selecting features with importance > {threshold}...")
+    
+    sfm = SelectFromModel(selector_model, threshold=threshold, prefit=True)
+    
+    # Transform the data
+    X_train_selected = sfm.transform(X_train)
+    X_test_selected = sfm.transform(X_test)
+    
+    # Get selected feature names
+    selected_features = feature_names[sfm.get_support()]
+    
+    # Convert back to DataFrame (preserve index)
+    X_train_final = pd.DataFrame(
+        X_train_selected,
+        columns=selected_features,
+        index=X_train.index
+    )
+    X_test_final = pd.DataFrame(
+        X_test_selected,
+        columns=selected_features,
+        index=X_test.index
+    )
+    
+    # Calculate removed features
+    removed_features = list(set(feature_names) - set(selected_features))
+    
+    # Print results
+    print(f"\n✅ FEATURE SELECTION RESULTS:")
+    print(f"   • Original features: {X_train.shape[1]}")
+    print(f"   • Selected features: {X_train_final.shape[1]} ({X_train_final.shape[1]/X_train.shape[1]*100:.1f}%)")
+    print(f"   • Removed features: {len(removed_features)} ({len(removed_features)/X_train.shape[1]*100:.1f}%)")
+    
+    print(f"\n📋 Selected Features ({len(selected_features)}):")
+    for i, feat in enumerate(sorted(selected_features), 1):
+        imp = feature_imp_df[feature_imp_df['Feature'] == feat]['Importance'].values[0]
+        print(f"   {i:2d}. {feat:<30} (importance: {imp:.6f})")
+    
+    if removed_features:
+        print(f"\n🗑️  Removed Features ({len(removed_features)}):")
+        for i, feat in enumerate(sorted(removed_features), 1):
+            imp = feature_imp_df[feature_imp_df['Feature'] == feat]['Importance'].values[0]
+            print(f"   {i:2d}. {feat:<30} (importance: {imp:.6f})")
+    
+    print("\n" + "="*80)
+    
+    return X_train_final, X_test_final, feature_imp_df
 
 
 # ============================================================================
@@ -316,6 +437,7 @@ def run_feature_engineering_pipeline(
 ) -> Tuple[pd.DataFrame, pd.Series, pd.DataFrame, pd.Series]:
     """
     Execute complete feature engineering pipeline.
+    Matches notebook implementation exactly.
     
     Args:
         train_path: Path to processed training data
@@ -325,7 +447,12 @@ def run_feature_engineering_pipeline(
     Returns:
         Tuple of (X_train, y_train, X_test, y_test)
     """
+    print("\n" + "="*80)
+    print("🚀 STARTING FEATURE ENGINEERING PIPELINE")
+    print("="*80)
+    
     # Load data
+    print("\n📂 Loading processed data...")
     train_df = pd.read_csv(train_path)
     test_df = pd.read_csv(test_path)
     
@@ -334,48 +461,96 @@ def run_feature_engineering_pipeline(
     X_test = test_df.drop(columns=['Severity'])
     y_test = test_df['Severity']
     
-    # Time features
+    print(f"   Train shape: {X_train.shape}")
+    print(f"   Test shape: {X_test.shape}")
+    
+    # Convert boolean columns to object for encoding
+    print("\n🔄 Converting boolean features to object type...")
+    bool_col = ['Amenity', 'Crossing', 'Junction', 'Railway', 'Station', 'Stop', 'Traffic_Signal']
+    for col in bool_col:
+        if col in X_train.columns:
+            X_train[col] = X_train[col].astype('object')
+            X_test[col] = X_test[col].astype('object')
+    
+    # Memory optimization - Step 1
+    print("\n📉 Memory optimization - Step 1...")
+    X_train = reduce_mem_usage(X_train, verbose=True)
+    X_test = reduce_mem_usage(X_test, verbose=True)
+    
+    # Encode boolean features
+    print("\n🔢 Encoding boolean features...")
+    X_train, X_test = encode_boolean_features(X_train, X_test, bool_col)
+    print(f"   ✅ Boolean features encoded (False=0, True=1)")
+    
+    # Feature Engineering
+    print("\n🛠️  Applying feature engineering functions...")
+    print("   ⏳ Creating Time Features...")
     X_train = extract_time_features(X_train)
     X_test = extract_time_features(X_test)
     
-    X_train = create_cyclical_features(X_train)
-    X_test = create_cyclical_features(X_test)
+    print("   ☁️  Creating Weather Flags...")
+    X_train = create_weather_flags(X_train)
+    X_test = create_weather_flags(X_test)
     
-    # Drop original Start_Time
-    X_train.drop(columns=['Start_Time'], inplace=True, errors='ignore')
-    X_test.drop(columns=['Start_Time'], inplace=True, errors='ignore')
+    print("   🚦 Creating Road Context features...")
+    X_train = create_road_context(X_train)
+    X_test = create_road_context(X_test)
     
-    # Weather features
-    X_train = create_weather_features(X_train)
-    X_test = create_weather_features(X_test)
+    print("   🔗 Creating Interaction & Density features...")
+    X_train = create_interaction_features(X_train)
+    X_test = create_interaction_features(X_test)
     
-    X_train = simplify_weather_condition(X_train)
-    X_test = simplify_weather_condition(X_test)
+    # Drop City and County (keep only State for target encoding)
+    print("\n🗑️  Dropping City and County columns...")
+    X_train.drop(columns=['City', 'County'], inplace=True, errors='ignore')
+    X_test.drop(columns=['City', 'County'], inplace=True, errors='ignore')
     
-    # Infrastructure features
-    X_train = create_infrastructure_score(X_train)
-    X_test = create_infrastructure_score(X_test)
+    # Target encoding for State only
+    print("\n🎯 Applying smoothed target encoding for State...")
+    high_cardinality_features = ['State']
+    X_train, X_test = encode_target_with_smoothing(
+        X_train, X_test, y_train, high_cardinality_features, m=20
+    )
     
-    # Encoding
-    X_train, X_test, encoders = encode_categorical_features(X_train, X_test)
+    print("\n📊 Feature Engineering Summary:")
+    print(f"   Train shape: {X_train.shape}")
+    print(f"   Test shape: {X_test.shape}")
+    print(f"   Total features: {X_train.shape[1]}")
     
-    # Memory optimization
-    X_train = reduce_mem_usage(X_train, verbose=False)
-    X_test = reduce_mem_usage(X_test, verbose=False)
+    # Feature Selection
+    print("\n🔍 Running feature selection...")
+    X_train, X_test, importance_df = select_features_rf(
+        X_train, y_train, X_test,
+        threshold='median',
+        n_estimators=100,
+        max_depth=20
+    )
+    
+    # Final memory optimization
+    print("\n📉 Final memory optimization...")
+    X_train = reduce_mem_usage(X_train, verbose=True)
+    X_test = reduce_mem_usage(X_test, verbose=True)
     
     # Save
     if save_output:
         output_dir = DataConfig.PROCESSED_DIR
         output_dir.mkdir(parents=True, exist_ok=True)
         
+        print(f"\n💾 Saving feature-engineered datasets...")
         X_train.to_csv(output_dir / 'X_train_featured.csv', index=False)
         X_test.to_csv(output_dir / 'X_test_featured.csv', index=False)
         y_train.to_csv(output_dir / 'y_train.csv', index=False)
         y_test.to_csv(output_dir / 'y_test.csv', index=False)
         
-        print(f"✓ Saved featured data to {output_dir}")
-        print(f"  X_train: {X_train.shape}")
-        print(f"  X_test: {X_test.shape}")
+        print(f"✅ Feature-engineered datasets saved successfully!")
+        print(f"   • {output_dir / 'X_train_featured.csv'}")
+        print(f"   • {output_dir / 'X_test_featured.csv'}")
+        print(f"   • {output_dir / 'y_train.csv'}")
+        print(f"   • {output_dir / 'y_test.csv'}")
+    
+    print("\n" + "="*80)
+    print("✅ FEATURE ENGINEERING PIPELINE COMPLETED!")
+    print("="*80)
     
     return X_train, y_train, X_test, y_test
 

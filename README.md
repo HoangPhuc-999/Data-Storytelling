@@ -28,7 +28,7 @@ Explain **HOW** and **WHY** specific Data Preparation techniques were chosen:
 - ✅ **Data Cleaning Strategy**: Handle outliers, missing values with business logic
 - ✅ **Feature Engineering Philosophy**: Create temporal features based on domain knowledge
 - ✅ **Encoding Decisions**: Frequency vs. One-hot vs. Label encoding - when to use what?
-- ✅ **Feature Selection Rationale**: VIF analysis, data leakage prevention
+- ✅ **Feature Selection Rationale**: Random Forest feature importance, data leakage prevention
 - ✅ **Model Selection Justification**: Ordinal regression vs. classification - why?
 
 **Visualization choices follow best practices:**
@@ -36,7 +36,7 @@ Explain **HOW** and **WHY** specific Data Preparation techniques were chosen:
 - 🗺️ Geographic maps → Accident hotspots
 - ⏰ Temporal heatmaps → Rush hour patterns
 - 🌦️ Weather correlations → Environmental impact
-- 🔗 VIF analysis → Multicollinearity detection
+- 🎯 Feature importance → Random Forest analysis
 
 ### **Part 3: GitHub Code Project**
 - 🏗️ **Modular Architecture**: Separate concerns (preprocessing, features, modeling, visualization)
@@ -193,24 +193,25 @@ Explain **HOW** and **WHY** specific Data Preparation techniques were chosen:
 
 **Encoding Strategies** (Implemented approach)
 | Feature Type | Encoding Method | Rationale |
-|--------------|----------------|-----------|
-| City (9,562 unique) | **Frequency Encoding** | Maps each city to its accident occurrence rate (0-1), captures urban density patterns |
-| County (1,567 unique) | **Frequency Encoding** | Regional accident patterns without dimensionality explosion |
-| State (49 unique) | **Frequency Encoding** | Consistent encoding strategy for all geographic features |
-| Sunrise_Sunset (2 unique) | **Label Encoding** | Ordinal mapping: Day/Night → numeric values |
-| Weather_Condition (~130 unique) | **Label Encoding** | Converts categorical weather types to numeric codes |
-| Boolean Features (7 infrastructure) | **Binary Conversion** | True → 1, False → 0, used for Road_Context_Score calculation |
-
-**Implementation Details**:
+|--------------|----------------|-----------|  
+| City (9,562 unique) | **Dropped** | Too high cardinality, limited predictive value after State encoding |
+| County (1,567 unique) | **Dropped** | Too high cardinality, redundant with State information |
+| State (49 unique) | **Smoothed Target Encoding** | Encodes mean severity per state with smoothing (m=20) to prevent overfitting |
+| Weather_Condition (~130 unique) | **Binary Flags** | Decomposed into 9 flags: Is_Rain, Is_Snow, Is_Fog, Is_Clear, Is_Cloudy, Low_Visibility, Low_Temp, High_Humidity, Bad_Weather |
+| Sunrise_Sunset (2 unique) | **Binary Flag** | Converted to Is_Night (0/1), then dropped |
+| Boolean Features (7 infrastructure) | **Binary Conversion** | True → 1, False → 0, used for Road_Context_Score calculation |**Implementation Details**:
 ```python
-# Frequency Encoding (City, County, State)
-freq_map = train['City'].value_counts(normalize=True)
-train['City_encoded'] = train['City'].map(freq_map).fillna(0)
+# Smoothed Target Encoding (State only)
+global_mean = y_train.mean()
+stats = train.groupby('State')['Severity'].agg(['count', 'mean'])
+smooth = (stats['count'] * stats['mean'] + 20 * global_mean) / (stats['count'] + 20)
+train['State_encoded'] = train['State'].map(smooth).fillna(global_mean)
 
-# Label Encoding (Sunrise_Sunset, Weather_Condition)
-from sklearn.preprocessing import LabelEncoder
-le = LabelEncoder()
-train['Weather_Condition_encoded'] = le.fit_transform(train['Weather_Condition'])
+# Weather Flags (from Weather_Condition)
+w_cond = train['Weather_Condition'].str.lower()
+train['Is_Rain'] = w_cond.str.contains('rain|storm|shower').astype('int8')
+train['Is_Snow'] = w_cond.str.contains('snow|blizzard|sleet').astype('int8')
+train['Bad_Weather'] = (train['Is_Rain'] | train['Is_Snow'] | train['Is_Fog']).astype('int8')
 
 # Boolean to Binary (Amenity, Crossing, Junction, etc.)
 train['Amenity'] = train['Amenity'].map({True: 1, False: 0})
@@ -326,7 +327,7 @@ train['Amenity'] = train['Amenity'].map({True: 1, False: 0})
 **5. Traffic Features**
 - `Distance(mi)`: Length of road affected by accident
 - `Description`: Natural language accident description
-
+ 
 **6. Metadata**
 - `ID`: Unique identifier
 - `Timezone`, `Airport_Code`: Location context
@@ -446,45 +447,66 @@ From our exploratory data analysis, we expect the following features to be most 
 
 ---
 
-### **2. Why Frequency Encoding for High-Cardinality Features?**
+### **2. Why Smoothed Target Encoding for State (and Drop City/County)?**
 
 **Problem**: Geographic features have extremely high cardinality:
-- City: 9,562 unique values
-- County: 1,567 unique values  
-- State: 49 unique values
+- City: 9,562 unique values → **Dropped** (too sparse, overfitting risk)
+- County: 1,567 unique values → **Dropped** (redundant with State)
+- State: 49 unique values → **Smoothed Target Encoding** ✅
 
-**Options Considered**:
-- One-hot encoding → 9,562+ new columns (curse of dimensionality, memory explosion)
-- Label encoding → Imposes false ordinal relationship (City 1 < City 2?)
-- Target encoding → Risk of overfitting, requires careful CV handling
-- **Frequency Encoding** ✅ → Maps to accident occurrence rate
+**Why Drop City and County?**
+- City has 9,562 unique values with most appearing <10 times → unreliable estimates
+- County is highly correlated with State → redundant information
+- Keeping only State reduces overfitting risk while maintaining geographic signal
 
-**Frequency Encoding Implementation**:
+**Smoothed Target Encoding Implementation** (State only):
 ```python
-# Calculate normalized frequency (accident rate per city)
-city_freq = train['City'].value_counts(normalize=True)
+# Calculate smoothed target encoding with regularization
+global_mean = y_train.mean()  # Overall severity mean
+stats = train.groupby('State')['Severity'].agg(['count', 'mean'])
+
+# Smoothing formula (m=20 regularization parameter)
+smooth = (stats['count'] * stats['mean'] + 20 * global_mean) / (stats['count'] + 20)
 
 # Map to training and test sets
-train['City_encoded'] = train['City'].map(city_freq).fillna(0)
-test['City_encoded'] = test['City'].map(city_freq).fillna(0)  # Unseen cities → 0
+train['State_encoded'] = train['State'].map(smooth).fillna(global_mean)
+test['State_encoded'] = test['State'].map(smooth).fillna(global_mean)
 ```
 
 **Advantages**:
-- ✅ **Captures meaningful pattern**: High-accident cities (e.g., Los Angeles) get higher values (~0.05)
-- ✅ **Single column**: Reduces 9,562 columns to 1 column
-- ✅ **Generalizes well**: Test cities not in train get 0 (interpreted as "rare city")
-- ✅ **Interpretable**: Value represents proportion of total accidents in that location
-- ✅ **Memory efficient**: float32 instead of 9,562 binary columns
+- ✅ **Captures target relationship**: Directly encodes mean severity per state
+- ✅ **Smoothing prevents overfitting**: States with few samples shrink toward global mean
+- ✅ **Handles unseen states**: Fallback to global mean for new states
+- ✅ **Single column**: 49 states → 1 float column (vs. 49 one-hot columns)
+- ✅ **Interpretable**: Higher values = higher average severity in that state
 
-**Applied to**: City, County, State (all geographic features use consistent strategy)
+**Applied to**: State only (City and County dropped to prevent overfitting)
 
 ---
 
-### **3. Why Ramdom Forest model for Feature Selection?**
+### **3. Why Random Forest for Feature Selection?**
 
-**Problem**: Multicollinearity inflates model variance and reduces interpretability.
+**Problem**: Not all engineered features are equally important. Including weak features increases noise and overfitting risk.
 
-**Result**: This reduces dimensionality, avoids overfitting, and speeds up training without losing useful information. We also optimized memory by downcasting numeric data types, reducing memory usage by about 50–70%.
+**Random Forest Feature Importance Implementation**:
+```python
+# Train Random Forest to evaluate feature importance
+rf = RandomForestClassifier(n_estimators=100, max_depth=20, random_state=42)
+rf.fit(X_train, y_train)
+
+# Select features with importance > median (top 50%)
+selector = SelectFromModel(rf, threshold='median', prefit=True)
+X_train_selected = selector.transform(X_train)
+X_test_selected = selector.transform(X_test)
+```
+
+**Why Random Forest over VIF?**
+- ✅ **Captures non-linear relationships**: VIF only detects linear multicollinearity
+- ✅ **Target-aware selection**: Considers predictive power, not just correlation
+- ✅ **Handles interactions**: RF naturally captures feature interactions
+- ✅ **Robust threshold**: Median importance provides stable cutoff
+
+**Results**: Reduces dimensionality by ~50%, removes weak features, speeds up training without losing predictive power. Combined with memory optimization (int8/float32 downcasting), reduces memory usage by 50-70%.
 
 ---
 
@@ -586,6 +608,9 @@ Data_Storytelling/
 │   └── model/                        # Model evaluation plots
 │
 ├── models/                           # Trained model artifacts (pickled)
+│
+├── report/
+│   └── report.txt                    # Project report and analysis
 │
 ├── requirements.txt                  # Python dependencies
 └── README.md                         # Project documentation
@@ -907,11 +932,14 @@ python -c "from src.features.feature_engineering import run_feature_engineering_
 ```
 
 **What happens:**
-1. ✅ Extract temporal features (hour, day, month, year, season, is_weekend, is_night)
-2. ✅ Frequency encoding for high-cardinality (City, County)
-3. ✅ One-hot encoding for low-cardinality (State, Weather_Condition)
-4. ✅ VIF-based feature selection (remove multicollinearity)
-5. ✅ Save final feature matrices
+1. ✅ Extract temporal features (Hour, Month, DayOfWeek, Is_Weekend, Is_Rush_Hour, Season, cyclical sin/cos)
+2. ✅ Create weather flags (Is_Rain, Is_Snow, Is_Fog, Low_Visibility, Bad_Weather, etc.)
+3. ✅ Create road context score (sum of 7 infrastructure boolean features)
+4. ✅ Create interaction features (Is_Night, Night_Rain_Junction)
+5. ✅ Drop City and County (too high cardinality)
+6. ✅ Smoothed target encoding for State only (m=20)
+7. ✅ Random Forest feature selection (keep features with importance > median)
+8. ✅ Save final feature matrices
 
 **Output files:**
 - `dataset/processed/X_train_featured.csv` (final features)
@@ -1063,9 +1091,9 @@ jupyter lab
    - Correlation analysis
 
 5. **`04_feature_engineering_and_feature_selection.ipynb`**  
-   - Create temporal features
-   - Test encoding strategies
-   - VIF-based feature selection
+   - Create temporal, weather, and interaction features
+   - Smoothed target encoding for State
+   - Random Forest feature selection (importance > median)
 
 6. **`05_model.ipynb`**  
    - Train multiple models
@@ -1228,30 +1256,33 @@ DataConfig.SAMPLE_SIZE = 100000  # Use 100K samples
 
 #### Encoding Strategies
 
-**Frequency Encoding** (for all geographic features):
-- **City (9,562 unique)**: Maps to normalized accident frequency (0-1 range)
-- **County (1,567 unique)**: Maps to regional accident occurrence rate
-- **State (49 unique)**: Consistent strategy with City/County
+**Smoothed Target Encoding** (for State only):
+- **State (49 unique)**: Encodes mean severity per state with smoothing parameter m=20
+- **Formula**: `smooth_val = (count × mean + m × global_mean) / (count + m)`
+- **Rationale**: Captures target relationship while preventing overfitting on rare states
+- **City/County**: Dropped entirely (too high cardinality, overfitting risk)
 
-**Label Encoding** (for categorical features):
-- **Sunrise_Sunset (2 unique)**: Day/Night → numeric codes
-- **Weather_Condition (~130 unique)**: Weather types → integer encoding
-- **Rationale**: Lower cardinality, no ordinality assumed, compatible with tree models
+**Weather Feature Engineering** (Weather_Condition decomposed):
+- **Binary flags created**: Is_Rain, Is_Snow, Is_Fog, Is_Clear, Is_Cloudy
+- **Threshold flags**: Low_Visibility (<3 mi), Low_Temp (<40°F), High_Humidity (>90%)
+- **Compound flag**: Bad_Weather (OR of multiple adverse conditions)
+- **Original column dropped** after decomposition
 
 **Binary Conversion** (for boolean infrastructure features):
 - **7 features**: Amenity, Crossing, Junction, Railway, Station, Stop, Traffic_Signal
 - **Conversion**: True → 1, False → 0
 - **Usage**: Summed into `Road_Context_Score` feature
 
-**Why Not One-Hot Encoding?**
-- Would create 9,562 columns for City alone (memory explosion)
-- Frequency encoding achieves same goal with 1 column per feature
+**Interaction Features**:
+- **Is_Night**: Derived from Sunrise_Sunset (Night=1, Day=0)
+- **Night_Rain_Junction**: Compound dangerous condition (Is_Night AND Is_Rain AND Junction)
 
-#### Multicollinearity Mitigation
+#### Feature Selection
 
-- Compute Variance Inflation Factor (VIF) for all numeric features
-- Iteratively remove features with VIF > 10
-- Retained features: temperature, visibility, wind speed, temporal features
+- Train Random Forest (n_estimators=100, max_depth=20) to evaluate feature importance
+- Select features with importance > median (top 50%)
+- Removes ~50% of weak features while retaining predictive power
+- More robust than VIF (captures non-linear relationships and interactions)
 
 **Output**: `X_train_featured.csv`, `X_test_featured.csv`
 
